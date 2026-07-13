@@ -1,0 +1,5 @@
+numpy
+librosa
+soundfile
+pyloudnorm
+sounddevice

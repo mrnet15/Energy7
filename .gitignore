@@ -1,0 +1,30 @@
+# --- Build output (PyInstaller) ---
+build/
+dist/
+*.spec
+
+# --- Python caches ---
+__pycache__/
+*.pyc
+*.pyo
+
+# --- ffmpeg is NOT redistributed; users fetch it with get_ffmpeg.bat ---
+ffmpeg.exe
+ffmpeg
+*.exe
+
+# --- Audio files and user data (don't commit music / mixes) ---
+*.mp3
+*.wav
+*.flac
+*.m4a
+*.aac
+*.ogg
+*.m3u
+*.bmx
+
+# --- OS / editor cruft ---
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
