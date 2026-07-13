@@ -3,3 +3,4 @@ librosa
 soundfile
 pyloudnorm
 sounddevice
+tkinterdnd2

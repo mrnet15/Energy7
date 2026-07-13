@@ -48,6 +48,7 @@ pyinstaller --noconfirm --clean --onefile --windowed --name Energy7 ^
   --collect-all sounddevice ^
   --collect-all numba ^
   --collect-all pyloudnorm ^
+  --collect-all tkinterdnd2 ^
   --hidden-import scipy.special.cython_special ^
   %ICON_ADD% ^
   --exclude-module numba.cuda ^

@@ -26,13 +26,16 @@ reactive visualizer, and export the whole thing as a single MP3.
   - *Beat-aligned (keep tempo)* — transitions lock to the beat grid on bar lines; the fade shortens automatically when two tracks differ in tempo so they don't clash.
   - *Tempo-matched (beat-lock)* — every track is time-stretched (pitch preserved) to a shared master BPM so the beats stay locked all the way through each crossfade.
   - *EQ bass-swap (clean blend)* — the club-style transition: the mids and highs crossfade smoothly while the **bass is swapped on a beat**, so the outgoing low end drops out exactly as the incoming kick/bassline lands and the two never muddy each other.
+- **Filter + echo FX** — an optional transition effect that sweeps a high-pass filter and adds a beat-timed echo tail on the outgoing track; layers on top of any mix mode.
 - **Auto-Order (harmonic sequencing)** — detects each track's musical key and BPM and reorders the playlist so every song flows into the most compatible next one (close tempo + Camelot-wheel key match), for a smoother, more consistent set. Use **Lock Start** to pin a chosen opener and have the rest sequenced around it.
 - **Long-intro detection** — starts each track where the groove really begins, not on the ambient intro.
 - **Loudness normalization (LUFS)** so the whole set sits at a consistent volume.
 - **Live transport** — play / pause / stop, click-to-scrub, skip ±10 seconds, and jump to the next / previous track.
 - **Trippy visualizer** — a rotating kaleidoscope that reacts to the music, with beat shockwaves and particle bursts.
-- **Export** the finished mix as a single 320 kbps MP3.
+- **Export** the finished mix as a single 320 kbps MP3, plus a **timestamped tracklist** and a **`.cue` sheet** for sharing sets.
 - **Playlists** — save and load `.m3u` playlists, or `.bmx` project files that also remember the analysis and settings.
+- **Analysis cache** — each file's BPM/key/beatgrid is remembered, so re-adding tracks is instant.
+- **Drag-and-drop** files onto the window, and **double-click** a track's BPM or Key cell to correct it by hand.
 - **Modern dark interface** with a neon logo and glitch-free, lossless playback.
 
 ## Requirements
@@ -83,7 +86,8 @@ libraries. Building must be done on Windows.
 4. Click **Build Mix**. When it reports "Mix ready", press **Play**.
 5. Use the transport row to scrub (click the bar), skip ±10s, or jump between tracks.
 6. Click **Visuals** for the kaleidoscope (Esc closes it; click it for a burst).
-7. **Save MP3** exports the set; **Save Playlist** keeps the track list.
+7. **Save MP3** exports the set; **Save Tracklist** writes a timestamped
+   tracklist and `.cue` sheet; **Save Playlist** keeps the track list.
 
 ## How it works
 

@@ -32,12 +32,20 @@ import struct
 import threading
 import subprocess
 import traceback
+import webbrowser
 
 import numpy as np
 
 # GUI (standard library)
 import tkinter as tk
-from tkinter import ttk, filedialog, messagebox
+from tkinter import ttk, filedialog, messagebox, simpledialog
+
+# Optional: drag-and-drop of files onto the window (pip install tkinterdnd2)
+try:
+    from tkinterdnd2 import TkinterDnD, DND_FILES
+except Exception:
+    TkinterDnD = None
+    DND_FILES = None
 
 # Audio analysis / loudness / playback (installed via pip)
 try:
@@ -61,6 +69,9 @@ try:
 except Exception:
     butter = filtfilt = None
 
+
+__version__ = "1.0"
+REPO_URL = "https://github.com/mrnet15/Energy7"
 
 SR = 44100                     # working sample rate
 CHANNELS = 2                   # stereo
@@ -296,6 +307,23 @@ def key_name(pc, mode):
     return "%s%s" % (_PITCHES[pc % 12], "m" if mode == "min" else "")
 
 
+def parse_camelot(text):
+    """Parse a Camelot code like '8A' / '12b' -> (pitch_class, 'maj'|'min')."""
+    t = str(text).strip().upper()
+    if len(t) < 2 or t[-1] not in ("A", "B"):
+        return None
+    try:
+        num = int(t[:-1])
+    except ValueError:
+        return None
+    letter = t[-1]
+    table = _CAMELOT_MIN if letter == "A" else _CAMELOT_MAJ
+    for pc, n in table.items():
+        if n == num:
+            return pc, ("min" if letter == "A" else "maj")
+    return None
+
+
 def camelot_distance(a, b):
     """
     Harmonic distance between two Camelot codes. 0 = same key; 1 = a perfect
@@ -357,6 +385,80 @@ def auto_order(tracks, start=None):
         order.append(nxt)
         remaining.remove(nxt)
     return order
+
+
+# --------------------------------------------------------------------------- #
+#  Analysis cache (so re-adding a file doesn't re-analyze it)
+# --------------------------------------------------------------------------- #
+def _cache_path():
+    return os.path.join(os.path.expanduser("~"), ".energy7_cache.json")
+
+
+def _load_cache():
+    try:
+        with open(_cache_path(), "r", encoding="utf-8") as f:
+            return json.load(f)
+    except Exception:
+        return {}
+
+
+def _save_cache(cache):
+    try:
+        with open(_cache_path(), "w", encoding="utf-8") as f:
+            json.dump(cache, f)
+    except Exception:
+        pass
+
+
+def _file_sig(path):
+    try:
+        st = os.stat(path)
+        return "%d:%d" % (int(st.st_mtime), st.st_size)
+    except Exception:
+        return "0:0"
+
+
+_ANALYSIS_CACHE = _load_cache()
+
+
+def analyze_cached(path, skip_long_intros=True, progress=None):
+    """
+    analyze_track() with a persistent cache. The music-start value is stored
+    once (detected) and applied per-call, so toggling 'skip long intros' never
+    forces a re-analysis.
+    """
+    sig = _file_sig(path)
+    entry = _ANALYSIS_CACHE.get(path)
+    if not entry or entry.get("sig") != sig:
+        info = analyze_track(path, skip_long_intros=True, progress=progress)
+        entry = {
+            "sig": sig,
+            "duration": info["duration"],
+            "tempo": info["tempo"],
+            "music_start": info["music_start"],
+            "beats": list(map(float, info["beats"])),
+            "key_pc": info.get("key_pc"),
+            "key_mode": info.get("key_mode"),
+            "camelot": info.get("camelot"),
+            "key_name": info.get("key_name"),
+        }
+        _ANALYSIS_CACHE[path] = entry
+        _save_cache(_ANALYSIS_CACHE)
+    elif progress:
+        progress("Cached: %s" % os.path.basename(path))
+
+    return {
+        "path": path,
+        "name": os.path.basename(path),
+        "duration": entry["duration"],
+        "tempo": entry["tempo"],
+        "beats": np.asarray(entry["beats"], dtype=float),
+        "music_start": entry["music_start"] if skip_long_intros else 0.0,
+        "key_pc": entry.get("key_pc"),
+        "key_mode": entry.get("key_mode"),
+        "camelot": entry.get("camelot"),
+        "key_name": entry.get("key_name"),
+    }
 
 
 def _snap_to_beat(t, beats, floor=True):
@@ -457,6 +559,30 @@ def eq_bass_swap_blend(a_tail, b_head, out_period):
     low = low_a * env_out[:, None] + low_b * env_in[:, None]
     high = high_a * fade_out + high_b * fade_in
     return (low + high).astype(np.float32)
+
+
+def apply_transition_fx(a_tail, out_period):
+    """
+    DJ transition effect for the OUTGOING track as it fades: a rising high-pass
+    filter sweep (the low end thins out) plus a beat-timed decaying echo, so the
+    old track dissolves into an airy, echoing tail instead of just fading.
+    """
+    xf = len(a_tail)
+    out = a_tail.astype(np.float32).copy()
+
+    low = _split_low(a_tail, fc=1200.0)
+    if low is not None:                       # sweep out more bass over time
+        k = np.linspace(0.0, 0.9, xf, dtype=np.float32)[:, None]
+        out = (a_tail - low * k).astype(np.float32)
+
+    echoed = out.copy()                       # decaying echo taps, one beat apart
+    d = max(1, int(out_period))
+    g = 0.5
+    for tap in range(1, 4):
+        delay = d * tap
+        if delay < xf:
+            echoed[delay:] += out[:xf - delay] * (g ** tap)
+    return echoed.astype(np.float32)
 
 
 def octave_rate(tempo, target):
@@ -595,7 +721,8 @@ def _prep_track(tr, mode, target, target_lufs, progress):
 
 
 def build_mix(tracks, crossfade_sec=8.0, target_lufs=-14.0,
-              tail_trim_sec=6.0, mode="align", master_bpm=0.0, progress=None):
+              tail_trim_sec=6.0, mode="align", master_bpm=0.0, fx=False,
+              progress=None):
     """
     Build one continuous, beat-locked mix from analyzed `tracks`.
 
@@ -672,11 +799,14 @@ def build_mix(tracks, crossfade_sec=8.0, target_lufs=-14.0,
             seg_end = xf + body
             seg_end = min(seg_end, len(seg))
 
+        a_tail = result[-xf:]
+        if fx:
+            a_tail = apply_transition_fx(a_tail, out_period)
         if mode == "eqswap":
-            blended = eq_bass_swap_blend(result[-xf:], seg[:xf], out_period)
+            blended = eq_bass_swap_blend(a_tail, seg[:xf], out_period)
         else:
             fade_out, fade_in = _equal_power_fades(xf)
-            blended = result[-xf:] * fade_out + seg[:xf] * fade_in
+            blended = a_tail * fade_out + seg[:xf] * fade_in
         cues.append(max(0, len(result) - xf))
         result = np.concatenate([result[:-xf], blended, seg[xf:seg_end]], axis=0)
         out_period = period
@@ -1032,6 +1162,45 @@ def load_m3u(path):
     return paths
 
 
+def _mmss(seconds):
+    s = int(seconds)
+    return "%d:%02d" % (s // 60, s % 60)
+
+
+def _cue_time(seconds):
+    """MM:SS:FF where FF = frames (75 per second), as CUE sheets require."""
+    total = int(seconds * 75)
+    ff = total % 75
+    s = total // 75
+    return "%02d:%02d:%02d" % (s // 60, s % 60, ff)
+
+
+def write_tracklist(path, tracks, cues, sr=SR):
+    """Write a human-readable, timestamped tracklist."""
+    n = min(len(tracks), len(cues))
+    with open(path, "w", encoding="utf-8") as f:
+        f.write("Energy 7 mix - tracklist\n")
+        f.write("=" * 32 + "\n")
+        for i in range(n):
+            t = cues[i] / sr
+            f.write("%02d.  %6s   %s\n" % (i + 1, _mmss(t),
+                                           tracks[i].get("name", "?")))
+
+
+def write_cue_sheet(path, mix_filename, tracks, cues, sr=SR):
+    """Write a .cue sheet so media players show track boundaries in the mix."""
+    n = min(len(tracks), len(cues))
+    with open(path, "w", encoding="utf-8") as f:
+        f.write('PERFORMER "Energy 7"\n')
+        f.write('TITLE "Energy 7 Mix"\n')
+        f.write('FILE "%s" MP3\n' % mix_filename)
+        for i in range(n):
+            name = str(tracks[i].get("name", "Track %d" % (i + 1))).replace('"', "'")
+            f.write("  TRACK %02d AUDIO\n" % (i + 1))
+            f.write('    TITLE "%s"\n' % name)
+            f.write("    INDEX 01 %s\n" % _cue_time(cues[i] / sr))
+
+
 def save_project(path, tracks, settings):
     data = {
         "settings": settings,
@@ -1087,10 +1256,13 @@ def _asset(name):
     return None
 
 
-class App(tk.Tk):
+_BaseTk = TkinterDnD.Tk if TkinterDnD is not None else tk.Tk
+
+
+class App(_BaseTk):
     def __init__(self):
         super().__init__()
-        self.title("Energy 7  -  automatic DJ    (mrnet15/claude)")
+        self.title("Energy 7  v%s  -  automatic DJ    (mrnet15/claude)" % __version__)
         self.geometry("880x680")
         self.minsize(760, 600)
         self.configure(bg=BG)
@@ -1107,8 +1279,34 @@ class App(tk.Tk):
         self._setup_style()
         self._set_icon()
         self._build_ui()
+        self._enable_dnd()
         self._pump_messages()
         self._check_environment()
+
+    def _enable_dnd(self):
+        if TkinterDnD is None:
+            return
+        try:
+            self.drop_target_register(DND_FILES)
+            self.dnd_bind("<<Drop>>", self._on_drop)
+        except Exception:
+            pass
+
+    def _on_drop(self, event):
+        try:
+            paths = self.tk.splitlist(event.data)
+        except Exception:
+            paths = str(event.data).split()
+        exts = (".mp3", ".wav", ".flac", ".m4a", ".aac", ".ogg")
+        added = 0
+        for p in paths:
+            p = p.strip("{}")
+            if os.path.isfile(p) and os.path.splitext(p)[1].lower() in exts:
+                self.tracks.append({"path": p, "name": os.path.basename(p)})
+                added += 1
+        if added:
+            self._refresh_tree()
+            self._log("Added %d file(s) via drag-and-drop." % added)
 
     # ----- theming --------------------------------------------------------- #
     def _setup_style(self):
@@ -1219,7 +1417,10 @@ class App(tk.Tk):
                       fill=FG, font=("Segoe UI Black", 20, "bold"))
         c.create_text(76, cy + 16, anchor="w", text="AUTOMATIC  DJ",
                       fill=ACCENT, font=("Segoe UI", 9, "bold"))
-        c.create_text(w - 12, cy, anchor="e", text="mrnet15 / claude",
+        c.create_text(w - 12, cy - 9, anchor="e", text="github.com/mrnet15/Energy7",
+                      tags=("repo",), fill=ACCENT,
+                      font=("Segoe UI", 9, "underline"))
+        c.create_text(w - 12, cy + 9, anchor="e", text="v" + __version__,
                       fill=MUTED, font=("Segoe UI", 9))
 
     # ----- UI construction ------------------------------------------------- #
@@ -1230,6 +1431,12 @@ class App(tk.Tk):
         self.header = tk.Canvas(self, height=74, bg=BG, highlightthickness=0)
         self.header.pack(fill="x", padx=10, pady=(8, 0))
         self.header.bind("<Configure>", self._draw_header)
+        self.header.tag_bind("repo", "<Button-1>",
+                             lambda e: webbrowser.open(REPO_URL))
+        self.header.tag_bind("repo", "<Enter>",
+                             lambda e: self.header.config(cursor="hand2"))
+        self.header.tag_bind("repo", "<Leave>",
+                             lambda e: self.header.config(cursor=""))
 
         top = ttk.Frame(self)
         top.pack(fill="x", **pad)
@@ -1256,6 +1463,7 @@ class App(tk.Tk):
             self.tree.column(c, width=w, anchor="w" if c == "name" else "center")
         self.tree.tag_configure("odd", background=PANEL)
         self.tree.tag_configure("even", background=PANEL2)
+        self.tree.bind("<Double-1>", self._on_tree_edit)
         self.tree.pack(side="left", fill="both", expand=True)
         sb = ttk.Scrollbar(mid, orient="vertical", command=self.tree.yview)
         sb.pack(side="right", fill="y")
@@ -1297,6 +1505,11 @@ class App(tk.Tk):
         ttk.Spinbox(opt, from_=0, to=220, increment=1, width=6,
                     textvariable=self.master_bpm).grid(row=1, column=4, sticky="w")
 
+        self.fx_enabled = tk.BooleanVar(value=False)
+        ttk.Checkbutton(opt, text="Filter + echo FX on transitions",
+                        variable=self.fx_enabled).grid(
+            row=2, column=0, columnspan=3, sticky="w", padx=6, pady=(0, 4))
+
         # Actions
         act = ttk.Frame(self)
         act.pack(fill="x", **pad)
@@ -1305,6 +1518,7 @@ class App(tk.Tk):
                    command=self.build).pack(side="left", padx=4)
         ttk.Button(act, text="Visuals", command=self.open_visuals).pack(side="left")
         ttk.Button(act, text="Save MP3", command=self.save_mp3).pack(side="left", padx=4)
+        ttk.Button(act, text="Save Tracklist", command=self.save_tracklist).pack(side="left")
         ttk.Button(act, text="Save Playlist", command=self.save_playlist).pack(side="left", padx=4)
         ttk.Button(act, text="Load Playlist", command=self.load_playlist).pack(side="left")
 
@@ -1366,11 +1580,12 @@ class App(tk.Tk):
             problems.append("sounddevice is not installed - live playback disabled.")
         if pyln is None:
             problems.append("pyloudnorm not installed - using simple peak normalize.")
-        if problems:
-            for p in problems:
-                self._log("[warning] " + p)
-        else:
-            self._log("Ready. Add some MP3s to get started.")
+        for p in problems:
+            self._log("[warning] " + p)
+        if TkinterDnD is None:
+            self._log("Tip: 'pip install tkinterdnd2' to drag files onto the window.")
+        if not problems:
+            self._log("Ready. Add MP3s (or drag them in) to get started.")
 
     def _busy(self, on):
         if on:
@@ -1442,6 +1657,57 @@ class App(tk.Tk):
         self._refresh_tree()
         self._log("Cleared.")
 
+    def _on_tree_edit(self, event):
+        """Double-click the BPM or Key cell to correct a track's detected value."""
+        col = self.tree.identify_column(event.x)
+        row = self.tree.identify_row(event.y)
+        if not row:
+            return
+        i = self.tree.index(row)
+        if not (0 <= i < len(self.tracks)):
+            return
+        tr = self.tracks[i]
+        if col == "#2":          # BPM
+            cur = tr.get("tempo", "")
+            val = simpledialog.askstring("Set BPM",
+                                         "BPM for '%s':" % tr.get("name", ""),
+                                         initialvalue=str(cur), parent=self)
+            if val:
+                try:
+                    tr["tempo"] = round(float(val), 1)
+                    self._cache_override(tr)
+                    self._refresh_tree()
+                except ValueError:
+                    messagebox.showerror("Invalid", "Enter a number, e.g. 128")
+        elif col == "#3":        # Key (Camelot)
+            val = simpledialog.askstring(
+                "Set Key",
+                "Camelot key for '%s' (e.g. 8A, 12B):" % tr.get("name", ""),
+                initialvalue=tr.get("camelot", ""), parent=self)
+            if val:
+                parsed = parse_camelot(val)
+                if not parsed:
+                    messagebox.showerror("Invalid", "Use a Camelot code like 8A or 12B.")
+                    return
+                pc, mode = parsed
+                tr["key_pc"] = pc
+                tr["key_mode"] = mode
+                tr["camelot"] = camelot_str(pc, mode)
+                tr["key_name"] = key_name(pc, mode)
+                self._cache_override(tr)
+                self._refresh_tree()
+
+    @staticmethod
+    def _cache_override(tr):
+        """Persist a manual BPM/key edit so it survives re-adding the file."""
+        path = tr.get("path")
+        entry = _ANALYSIS_CACHE.get(path) if path else None
+        if entry:
+            for k in ("tempo", "key_pc", "key_mode", "camelot", "key_name"):
+                if k in tr:
+                    entry[k] = tr[k]
+            _save_cache(_ANALYSIS_CACHE)
+
     def lock_start(self):
         """Pin the selected track as the opener that Auto-Order builds around."""
         i = self._selected_index()
@@ -1472,7 +1738,7 @@ class App(tk.Tk):
         def job():
             for idx, tr in enumerate(self.tracks):
                 if "camelot" not in tr or "beats" not in tr:
-                    self.tracks[idx] = analyze_track(tr["path"], skip_long_intros=skip,
+                    self.tracks[idx] = analyze_cached(tr["path"], skip_long_intros=skip,
                                                      progress=self._progress)
                     self.msg_queue.put(("tracks", None))
             start = None
@@ -1549,7 +1815,7 @@ class App(tk.Tk):
 
         def job():
             for idx, tr in enumerate(self.tracks):
-                info = analyze_track(tr["path"], skip_long_intros=skip,
+                info = analyze_cached(tr["path"], skip_long_intros=skip,
                                      progress=self._progress)
                 self.tracks[idx] = info
                 self.msg_queue.put(("tracks", None))
@@ -1573,15 +1839,16 @@ class App(tk.Tk):
         else:
             mode = "align"
         mbpm = float(self.master_bpm.get())
+        fx = self.fx_enabled.get()
 
         def job():
             for idx, tr in enumerate(self.tracks):
                 if "beats" not in tr:
-                    self.tracks[idx] = analyze_track(tr["path"], skip_long_intros=skip,
+                    self.tracks[idx] = analyze_cached(tr["path"], skip_long_intros=skip,
                                                      progress=self._progress)
                     self.msg_queue.put(("tracks", None))
             mix = build_mix(self.tracks, crossfade_sec=xf, target_lufs=lufs,
-                            mode=mode, master_bpm=mbpm, progress=self._progress)
+                            mode=mode, master_bpm=mbpm, fx=fx, progress=self._progress)
             self.msg_queue.put(("mix_done", mix))
 
         self._run_bg(job)
@@ -1688,6 +1955,27 @@ class App(tk.Tk):
 
         self._run_bg(job)
 
+    def save_tracklist(self):
+        if self.mix is None or not self.cues:
+            messagebox.showinfo("No mix", "Build the mix first, then save the tracklist.")
+            return
+        path = filedialog.asksaveasfilename(
+            title="Save tracklist", defaultextension=".txt",
+            filetypes=[("Text tracklist", "*.txt"), ("Cue sheet", "*.cue")])
+        if not path:
+            return
+        base = os.path.splitext(path)[0]
+        mix_name = os.path.basename(base) + ".mp3"
+        try:
+            write_tracklist(base + ".txt", self.tracks, self.cues)
+            write_cue_sheet(base + ".cue", mix_name, self.tracks, self.cues)
+            self._log("Saved tracklist: %s.txt and %s.cue" %
+                      (os.path.basename(base), os.path.basename(base)))
+            self._log("(The .cue points at '%s' — name your exported MP3 that.)"
+                      % mix_name)
+        except Exception as e:
+            messagebox.showerror("Save failed", str(e))
+
     def save_playlist(self):
         if not self.tracks:
             messagebox.showinfo("No tracks", "Nothing to save.")
@@ -1699,7 +1987,8 @@ class App(tk.Tk):
             return
         settings = {"crossfade": self.xfade.get(), "lufs": self.lufs.get(),
                     "skip_intros": self.skip_intros.get(),
-                    "mode": self.mode.get(), "master_bpm": self.master_bpm.get()}
+                    "mode": self.mode.get(), "master_bpm": self.master_bpm.get(),
+                    "fx": self.fx_enabled.get()}
         try:
             if path.lower().endswith(".bmx"):
                 save_project(path, self.tracks, settings)
@@ -1725,6 +2014,7 @@ class App(tk.Tk):
                 self.skip_intros.set(s.get("skip_intros", True))
                 self.mode.set(s.get("mode", "Beat-aligned (keep tempo)"))
                 self.master_bpm.set(s.get("master_bpm", 0.0))
+                self.fx_enabled.set(s.get("fx", False))
             else:
                 paths = load_m3u(path)
                 self.tracks = [{"path": p, "name": os.path.basename(p)}
