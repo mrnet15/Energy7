@@ -22,9 +22,11 @@ reactive visualizer, and export the whole thing as a single MP3.
 ## Features
 
 - **Automatic beat-mixing** with beat-grid-locked crossfades between tracks.
-- **Two mix modes:**
+- **Three mix modes:**
   - *Beat-aligned (keep tempo)* — transitions lock to the beat grid on bar lines; the fade shortens automatically when two tracks differ in tempo so they don't clash.
   - *Tempo-matched (beat-lock)* — every track is time-stretched (pitch preserved) to a shared master BPM so the beats stay locked all the way through each crossfade.
+  - *EQ bass-swap (clean blend)* — the club-style transition: the mids and highs crossfade smoothly while the **bass is swapped on a beat**, so the outgoing low end drops out exactly as the incoming kick/bassline lands and the two never muddy each other.
+- **Auto-Order (harmonic sequencing)** — detects each track's musical key and BPM and reorders the playlist so every song flows into the most compatible next one (close tempo + Camelot-wheel key match), for a smoother, more consistent set. Use **Lock Start** to pin a chosen opener and have the rest sequenced around it.
 - **Long-intro detection** — starts each track where the groove really begins, not on the ambient intro.
 - **Loudness normalization (LUFS)** so the whole set sits at a consistent volume.
 - **Live transport** — play / pause / stop, click-to-scrub, skip ±10 seconds, and jump to the next / previous track.
@@ -67,13 +69,16 @@ libraries. Building must be done on Windows.
 
 ## How to use it
 
-1. Click **Add MP3s** and choose your tracks. Reorder them with **Up / Down**.
-2. (Optional) Click **Analyze** to see each track's BPM and detected start point.
+1. Click **Add MP3s** and choose your tracks. Reorder them with **Up / Down**,
+   or click **Auto-Order** to let Energy 7 sequence them for the smoothest mix
+   (by key and tempo). To force a specific opening track, select it and click
+   **Lock Start** (a ★ marks it) before Auto-Order.
+2. (Optional) Click **Analyze** to see each track's BPM, key, and start point.
 3. Set your **Mix settings**:
    - *Crossfade (sec)* — transition length (8s is a good start).
    - *Loudness (LUFS)* — target volume; −14 is the streaming standard.
    - *Skip long intros* — start each track at the beat drop.
-   - *Mix mode* — Beat-aligned or Tempo-matched.
+   - *Mix mode* — Beat-aligned, Tempo-matched, or EQ bass-swap.
    - *Master BPM* — for Tempo-matched mode; 0 = auto (uses the first track's BPM).
 4. Click **Build Mix**. When it reports "Mix ready", press **Play**.
 5. Use the transport row to scrub (click the bar), skip ±10s, or jump between tracks.

@@ -56,6 +56,11 @@ try:
 except Exception:
     sd = None
 
+try:
+    from scipy.signal import butter, filtfilt
+except Exception:
+    butter = filtfilt = None
+
 
 SR = 44100                     # working sample rate
 CHANNELS = 2                   # stereo
@@ -226,6 +231,10 @@ def analyze_track(path, skip_long_intros=True, progress=None):
 
     music_start = find_music_start(mono, SR) if skip_long_intros else 0.0
 
+    if progress:
+        progress("Detecting key: %s" % os.path.basename(path))
+    pc, kmode = estimate_key(mono, SR)
+
     return {
         "path": path,
         "name": os.path.basename(path),
@@ -233,7 +242,121 @@ def analyze_track(path, skip_long_intros=True, progress=None):
         "tempo": round(tempo, 1),
         "beats": beats.astype(float),
         "music_start": float(music_start),
+        "key_pc": pc,
+        "key_mode": kmode,
+        "camelot": camelot_str(pc, kmode),
+        "key_name": key_name(pc, kmode),
     }
+
+
+# --------------------------------------------------------------------------- #
+#  Musical key + harmonic (Camelot) mixing
+# --------------------------------------------------------------------------- #
+_PITCHES = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"]
+# Camelot number for each pitch class.
+_CAMELOT_MAJ = {0: 8, 1: 3, 2: 10, 3: 5, 4: 12, 5: 7, 6: 2, 7: 9, 8: 4, 9: 11, 10: 6, 11: 1}
+_CAMELOT_MIN = {0: 5, 1: 12, 2: 7, 3: 2, 4: 9, 5: 4, 6: 11, 7: 6, 8: 1, 9: 8, 10: 3, 11: 10}
+
+# Krumhansl-Schmuckler key profiles.
+_MAJ_PROFILE = np.array([6.35, 2.23, 3.48, 2.33, 4.38, 4.09, 2.52, 5.19, 2.39, 3.66, 2.29, 2.88])
+_MIN_PROFILE = np.array([6.33, 2.68, 3.52, 5.38, 2.60, 3.53, 2.54, 4.75, 3.98, 2.69, 3.34, 3.17])
+
+
+def estimate_key(mono, sr=SR):
+    """Estimate (pitch_class 0-11, 'maj'|'min') from a mono signal."""
+    try:
+        chroma = librosa.feature.chroma_cqt(y=mono, sr=sr)
+        vec = chroma.mean(axis=1)
+        if not np.any(vec):
+            return 0, "maj"
+        best = None
+        for i in range(12):
+            for mode, prof in (("maj", _MAJ_PROFILE), ("min", _MIN_PROFILE)):
+                score = float(np.corrcoef(np.roll(prof, i), vec)[0, 1])
+                if best is None or score > best[2]:
+                    best = (i, mode, score)
+        return best[0], best[1]
+    except Exception:
+        return 0, "maj"
+
+
+def camelot(pc, mode):
+    """Return (number 1-12, letter 'A'/'B') on the Camelot wheel."""
+    if mode == "min":
+        return _CAMELOT_MIN[pc % 12], "A"
+    return _CAMELOT_MAJ[pc % 12], "B"
+
+
+def camelot_str(pc, mode):
+    n, l = camelot(pc, mode)
+    return "%d%s" % (n, l)
+
+
+def key_name(pc, mode):
+    return "%s%s" % (_PITCHES[pc % 12], "m" if mode == "min" else "")
+
+
+def camelot_distance(a, b):
+    """
+    Harmonic distance between two Camelot codes. 0 = same key; 1 = a perfect
+    DJ-compatible move (±1 on the wheel, or relative major/minor); larger = more
+    dissonant.
+    """
+    (na, la), (nb, lb) = a, b
+    ring = min((na - nb) % 12, (nb - na) % 12)
+    if la == lb:
+        return ring
+    if na == nb:
+        return 1                       # relative major/minor
+    return ring + 2
+
+
+def _tempo_gap(bpm_a, bpm_b):
+    """BPM difference after folding one tempo to the other's octave (half/double)."""
+    if bpm_a <= 0 or bpm_b <= 0:
+        return 0.0
+    b = bpm_b
+    while b < bpm_a / 1.4142:
+        b *= 2
+    while b > bpm_a * 1.4142:
+        b /= 2
+    return abs(bpm_a - b)
+
+
+def mixability(a, b):
+    """Higher = the two tracks blend better (close tempo + compatible key)."""
+    tempo_pen = _tempo_gap(a.get("tempo", 0) or 0, b.get("tempo", 0) or 0)
+    key_pen = 0.0
+    if a.get("camelot") and b.get("camelot"):
+        ca = camelot(a["key_pc"], a["key_mode"])
+        cb = camelot(b["key_pc"], b["key_mode"])
+        key_pen = camelot_distance(ca, cb)
+    return -(tempo_pen + 2.5 * key_pen)
+
+
+def auto_order(tracks, start=None):
+    """
+    Reorder tracks so each flows into the most mixable next one, greedily
+    chaining by mixability (tempo proximity + Camelot key compatibility).
+
+    If `start` is given (a track to lock as the opener) the chain is built from
+    it; otherwise it starts from the lowest-BPM track so energy tends to build.
+    """
+    items = list(tracks)
+    if len(items) < 3:
+        return items
+    if start is not None and start in items:
+        first = start
+    else:
+        first = min(items, key=lambda t: (t.get("tempo", 0) or 1e9))
+    order = [first]
+    remaining = [t for t in items if t is not first]
+    while remaining:
+        last = order[-1]
+        nxt = max(remaining, key=lambda t: mixability(last, t))
+        order.append(nxt)
+        remaining.remove(nxt)
+    return order
 
 
 def _snap_to_beat(t, beats, floor=True):
@@ -287,6 +410,53 @@ def _equal_power_fades(n):
     fade_in = np.sin(t * (np.pi / 2.0))
     fade_out = np.cos(t * (np.pi / 2.0))
     return fade_out.reshape(-1, 1), fade_in.reshape(-1, 1)
+
+
+def _split_low(x, fc=200.0, order=4):
+    """Return the low-frequency band of a stereo clip (below ~fc Hz)."""
+    if butter is None or filtfilt is None or len(x) < 32:
+        return None
+    b, a = butter(order, fc / (SR / 2.0), btype="low")
+    return filtfilt(b, a, x, axis=0).astype(np.float32)
+
+
+def eq_bass_swap_blend(a_tail, b_head, out_period):
+    """
+    Club-style transition: the mids/highs of the two tracks crossfade smoothly,
+    but the BASS is swapped on a beat - the outgoing low end drops out exactly as
+    the incoming kick/bassline arrives, so the two basslines never clash.
+    Falls back to a plain equal-power crossfade if SciPy isn't available.
+    """
+    xf = len(a_tail)
+    fade_out, fade_in = _equal_power_fades(xf)
+
+    low_a = _split_low(a_tail)
+    low_b = _split_low(b_head)
+    if low_a is None or low_b is None:
+        return a_tail * fade_out + b_head * fade_in
+
+    high_a = a_tail - low_a
+    high_b = b_head - low_b
+
+    # Swap point: a beat near the middle of the crossfade.
+    swap = int(round((xf / 2.0) / out_period) * out_period)
+    swap = min(max(out_period, swap), xf - 1)
+    ramp = max(1, min(int(out_period), xf // 6))     # short low-band crossover
+    start = max(0, swap - ramp // 2)
+    end = min(xf, start + ramp)
+
+    env_out = np.ones(xf, dtype=np.float32)
+    env_in = np.zeros(xf, dtype=np.float32)
+    if end > start:
+        s = np.linspace(0.0, 1.0, end - start, dtype=np.float32)
+        env_out[start:end] = np.cos(s * (np.pi / 2.0))
+        env_in[start:end] = np.sin(s * (np.pi / 2.0))
+    env_out[end:] = 0.0
+    env_in[end:] = 1.0
+
+    low = low_a * env_out[:, None] + low_b * env_in[:, None]
+    high = high_a * fade_out + high_b * fade_in
+    return (low + high).astype(np.float32)
 
 
 def octave_rate(tempo, target):
@@ -440,6 +610,9 @@ def build_mix(tracks, crossfade_sec=8.0, target_lufs=-14.0,
                     tempos differ so they don't drift apart audibly.
     mode="match"  - time-stretch every track to a shared master BPM so the beats
                     stay locked all the way through each crossfade.
+    mode="eqswap" - like "align", but the crossfade swaps the bass on a beat
+                    (outgoing low end out as the incoming kick lands) while the
+                    mids/highs blend - the clean, club-style transition.
     """
     if not tracks:
         raise RuntimeError("No tracks to mix.")
@@ -499,8 +672,11 @@ def build_mix(tracks, crossfade_sec=8.0, target_lufs=-14.0,
             seg_end = xf + body
             seg_end = min(seg_end, len(seg))
 
-        fade_out, fade_in = _equal_power_fades(xf)
-        blended = result[-xf:] * fade_out + seg[:xf] * fade_in
+        if mode == "eqswap":
+            blended = eq_bass_swap_blend(result[-xf:], seg[:xf], out_period)
+        else:
+            fade_out, fade_in = _equal_power_fades(xf)
+            blended = result[-xf:] * fade_out + seg[:xf] * fade_in
         cues.append(max(0, len(result) - xf))
         result = np.concatenate([result[:-xf], blended, seg[xf:seg_end]], axis=0)
         out_period = period
@@ -866,6 +1042,10 @@ def save_project(path, tracks, settings):
                 "duration": t.get("duration"),
                 "tempo": t.get("tempo"),
                 "music_start": t.get("music_start"),
+                "key_pc": t.get("key_pc"),
+                "key_mode": t.get("key_mode"),
+                "camelot": t.get("camelot"),
+                "key_name": t.get("key_name"),
                 "beats": list(map(float, t.get("beats", []))) if t.get("beats") is not None else [],
             }
             for t in tracks
@@ -918,6 +1098,7 @@ class App(tk.Tk):
         self.tracks = []          # list of analyzed track dicts (or path-only)
         self.mix = None           # rendered mix numpy buffer
         self.cues = []            # sample offsets where each track enters the mix
+        self.locked_start_path = None   # track pinned as the mix opener
         self.player = Player()
         self.msg_queue = queue.Queue()
         self.worker = None
@@ -1058,14 +1239,19 @@ class App(tk.Tk):
         ttk.Button(top, text="Up", command=lambda: self.move(-1)).pack(side="left")
         ttk.Button(top, text="Down", command=lambda: self.move(1)).pack(side="left", padx=4)
         ttk.Button(top, text="Clear", command=self.clear_all).pack(side="left")
+        ttk.Button(top, text="✨ Auto-Order", style="Accent.TButton",
+                   command=self.auto_order_tracks).pack(side="right")
+        ttk.Button(top, text="★ Lock Start",
+                   command=self.lock_start).pack(side="right", padx=4)
 
         # Track list
         mid = ttk.Frame(self)
         mid.pack(fill="both", expand=True, **pad)
-        cols = ("name", "bpm", "start", "len")
+        cols = ("name", "bpm", "key", "start", "len")
         self.tree = ttk.Treeview(mid, columns=cols, show="headings", selectmode="browse")
-        for c, w, txt in (("name", 400, "Track"), ("bpm", 80, "BPM"),
-                          ("start", 120, "Music starts"), ("len", 90, "Length")):
+        for c, w, txt in (("name", 360, "Track"), ("bpm", 70, "BPM"),
+                          ("key", 60, "Key"), ("start", 110, "Music starts"),
+                          ("len", 80, "Length")):
             self.tree.heading(c, text=txt)
             self.tree.column(c, width=w, anchor="w" if c == "name" else "center")
         self.tree.tag_configure("odd", background=PANEL)
@@ -1099,8 +1285,10 @@ class App(tk.Tk):
             row=1, column=0, sticky="e", padx=6, pady=6)
         self.mode = tk.StringVar(value="Beat-aligned (keep tempo)")
         self.mode_box = ttk.Combobox(
-            opt, width=26, state="readonly", textvariable=self.mode,
-            values=["Beat-aligned (keep tempo)", "Tempo-matched (beat-lock)"])
+            opt, width=28, state="readonly", textvariable=self.mode,
+            values=["Beat-aligned (keep tempo)",
+                    "Tempo-matched (beat-lock)",
+                    "EQ bass-swap (clean blend)"])
         self.mode_box.grid(row=1, column=1, columnspan=2, sticky="w")
 
         ttk.Label(opt, text="Master BPM (0 = auto):", style="Muted.TLabel").grid(
@@ -1199,10 +1387,13 @@ class App(tk.Tk):
             start = ("%d:%02d" % (int(ms) // 60, int(ms) % 60)) if ms else "-"
             dur = tr.get("duration", None)
             length = ("%d:%02d" % (int(dur) // 60, int(dur) % 60)) if dur else "-"
+            key = tr.get("camelot", "") or ""
+            name = tr.get("name", os.path.basename(tr["path"]))
+            if tr.get("path") and tr.get("path") == self.locked_start_path:
+                name = "★ " + name
             tag = "even" if i % 2 else "odd"
             self.tree.insert("", "end", tags=(tag,),
-                             values=(tr.get("name", os.path.basename(tr["path"])),
-                                     bpm, start, length))
+                             values=(name, bpm, key, start, length))
 
     def _selected_index(self):
         sel = self.tree.selection()
@@ -1226,7 +1417,9 @@ class App(tk.Tk):
         i = self._selected_index()
         if i is None:
             return
-        self.tracks.pop(i)
+        removed = self.tracks.pop(i)
+        if removed.get("path") == self.locked_start_path:
+            self.locked_start_path = None
         self._refresh_tree()
 
     def move(self, delta):
@@ -1245,8 +1438,60 @@ class App(tk.Tk):
         self.stop_play()
         self.tracks = []
         self.mix = None
+        self.locked_start_path = None
         self._refresh_tree()
         self._log("Cleared.")
+
+    def lock_start(self):
+        """Pin the selected track as the opener that Auto-Order builds around."""
+        i = self._selected_index()
+        if i is None:
+            messagebox.showinfo("Lock Start",
+                                "Select a track in the list first, then Lock Start.")
+            return
+        path = self.tracks[i].get("path")
+        if self.locked_start_path == path:
+            self.locked_start_path = None
+            self._log("Unlocked start track.")
+        else:
+            self.locked_start_path = path
+            self._log("Locked start track: %s" % self.tracks[i].get("name", "?"))
+        self._refresh_tree()
+
+    def auto_order_tracks(self):
+        """Analyze (tempo + key) then reorder tracks for the smoothest mix."""
+        if len(self.tracks) < 3:
+            messagebox.showinfo("Auto-Order", "Add at least 3 tracks first.")
+            return
+        if librosa is None:
+            messagebox.showerror("Missing library",
+                                 "librosa is required for Auto-Order.")
+            return
+        skip = self.skip_intros.get()
+
+        def job():
+            for idx, tr in enumerate(self.tracks):
+                if "camelot" not in tr or "beats" not in tr:
+                    self.tracks[idx] = analyze_track(tr["path"], skip_long_intros=skip,
+                                                     progress=self._progress)
+                    self.msg_queue.put(("tracks", None))
+            start = None
+            if self.locked_start_path:
+                start = next((t for t in self.tracks
+                              if t.get("path") == self.locked_start_path), None)
+            self.tracks = auto_order(self.tracks, start=start)
+            self.msg_queue.put(("tracks", None))
+            if start is not None:
+                self.msg_queue.put(("log", "Auto-ordered (locked opener: %s):"
+                                    % start.get("name", "?")))
+            else:
+                self.msg_queue.put(("log", "Auto-ordered for smoothest mixing:"))
+            for i, t in enumerate(self.tracks, 1):
+                self.msg_queue.put(("log", "  %2d. %-28s  [%s, %d BPM]" % (
+                    i, str(t.get("name", "?"))[:28], t.get("camelot", "?"),
+                    int(t.get("tempo", 0) or 0))))
+
+        self._run_bg(job)
 
     # ----- background worker ---------------------------------------------- #
     def _run_bg(self, fn):
@@ -1320,7 +1565,13 @@ class App(tk.Tk):
         skip = self.skip_intros.get()
         xf = float(self.xfade.get())
         lufs = float(self.lufs.get())
-        mode = "match" if self.mode.get().startswith("Tempo") else "align"
+        sel = self.mode.get()
+        if sel.startswith("Tempo"):
+            mode = "match"
+        elif sel.startswith("EQ"):
+            mode = "eqswap"
+        else:
+            mode = "align"
         mbpm = float(self.master_bpm.get())
 
         def job():
