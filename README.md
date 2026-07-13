@@ -119,6 +119,18 @@ it is not included in this repository. Run `get_ffmpeg.bat` to download it. The
 built `Energy7.exe` (which bundles ffmpeg) is likewise not committed, so the
 repository itself stays cleanly MIT-licensed.
 
+See `THIRD_PARTY_NOTICES.md` for the licenses of components used or bundled.
+
+### Distributing a build (Releases)
+
+- **Easiest:** build and release the exe *without* `ffmpeg.exe` in the folder
+  (the build only bundles ffmpeg if it's present). Users then run
+  `get_ffmpeg.bat`, and the release carries no copyleft components.
+- **Self-contained exe (ffmpeg bundled):** also fine, but include ffmpeg's GPL
+  license text and a link to that ffmpeg build's source with the download, since
+  you are redistributing a GPL binary. Energy 7's own code stays MIT because it
+  calls ffmpeg as a separate program rather than linking it.
+
 ## Credits
 
 Created by **mrnet15**, built together with **Claude**.
