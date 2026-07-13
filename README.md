@@ -1,134 +1,124 @@
-# Energy 7 — a simple automatic DJ for Windows
+<p align="center">
+  <img src="energy7.png" alt="Energy 7 logo" width="140">
+</p>
 
-*Made by mrnet15/claude.*
+<h1 align="center">Energy 7</h1>
 
-Energy 7 takes a folder of MP3s and turns them into one continuous, beat-aligned,
-volume-matched mix. It understands long dance intros (the ones where the track
-doesn't really "start" until a minute or two in) and mixes from where the music
-actually kicks in. You can play the mix live, watch a reactive visualizer, and
-save both the mixed MP3 and your playlist.
+<p align="center">A simple automatic DJ for Windows — beat-mix your MP3s into one continuous set.</p>
 
-## What it does
+---
 
-- **Add & reorder MP3s** in a simple window.
-- **Analyzes each track** — detects tempo (BPM), the beat grid, and where the
-  music truly begins (skips long/ambient intros).
-- **Two mix modes**:
-  - *Beat-aligned (keep tempo)* — transitions start on a beat of both tracks;
-    original tempo is kept, nothing sounds warped.
-  - *Tempo-matched (beat-lock)* — every track is time-stretched (pitch kept) to
-    a shared master BPM so the beats stay locked all the way through each
-    crossfade, like a real DJ syncing decks. Half/double-time is handled
-    automatically, so a 174-BPM track locks to a 128-BPM set with the smallest
-    possible stretch instead of a jarring one.
-- **Loudness normalization (LUFS)** — every track sits at the same volume, so
-  the set never jumps loud or quiet between songs.
-- **Modern dark interface** with a neon logo, and lossless, glitch-free
-  playback (the mix plays straight from the rendered audio at full quality).
-- **Live transport** — play / pause / stop, **scrub** by clicking the position
-  bar, skip **±10 seconds**, and jump to the **next / previous track**.
-- **Trippy Visuals** — a rotating kaleidoscope that reacts to the music, with
-  beat shockwaves and particle bursts (click the window for an extra burst).
-- **Save MP3** — render the whole set to a single 320 kbps MP3.
-- **Playlists** — save/load `.m3u` playlists, or `.bmx` projects that also
-  remember the analysis and your settings.
+Energy 7 turns a folder of MP3s into one continuous, beat-matched, volume-levelled
+mix. It detects each track's tempo and beat grid, finds where the music actually
+kicks in (handling long dance intros that idle for a minute or two before the
+drop), lines the beats up at every transition, and evens out the loudness so no
+track jumps out. You can play the set live, scrub and skip through it, watch a
+reactive visualizer, and export the whole thing as a single MP3.
+
+<p align="center">
+  <img src="screenshot.png" alt="Energy 7 interface" width="720">
+</p>
+
+## Features
+
+- **Automatic beat-mixing** with beat-grid-locked crossfades between tracks.
+- **Two mix modes:**
+  - *Beat-aligned (keep tempo)* — transitions lock to the beat grid on bar lines; the fade shortens automatically when two tracks differ in tempo so they don't clash.
+  - *Tempo-matched (beat-lock)* — every track is time-stretched (pitch preserved) to a shared master BPM so the beats stay locked all the way through each crossfade.
+- **Long-intro detection** — starts each track where the groove really begins, not on the ambient intro.
+- **Loudness normalization (LUFS)** so the whole set sits at a consistent volume.
+- **Live transport** — play / pause / stop, click-to-scrub, skip ±10 seconds, and jump to the next / previous track.
+- **Trippy visualizer** — a rotating kaleidoscope that reacts to the music, with beat shockwaves and particle bursts.
+- **Export** the finished mix as a single 320 kbps MP3.
+- **Playlists** — save and load `.m3u` playlists, or `.bmx` project files that also remember the analysis and settings.
+- **Modern dark interface** with a neon logo and glitch-free, lossless playback.
 
 ## Requirements
 
-- **Windows** with **Python 3.9+** and **ffmpeg** on your PATH.
-- Python packages in `requirements.txt` (installed automatically on first run).
+- Windows with **Python 3.9+**
+- **ffmpeg** (used to decode/encode audio) — see below; the included script can fetch it for you
+- Python packages listed in `requirements.txt` (installed automatically on first run)
 
-Check ffmpeg works by opening Command Prompt and running: `ffmpeg -version`
+## Getting started
 
-## How to run
+1. Download or clone this repository.
+2. Double-click **`get_ffmpeg.bat`** once to download `ffmpeg.exe` into the folder
+   (skip this if ffmpeg is already on your system PATH).
+3. Double-click **`run.bat`**. The first launch installs the Python packages, then
+   opens the app. Subsequent launches start instantly.
 
-1. Put all the files in one folder.
-2. Double-click **`run.bat`** (first launch installs the packages, then opens
-   the app). After that it starts instantly.
+Prefer the command line?
 
-Or from a terminal:
-
-```
+```bash
 pip install -r requirements.txt
 python energy7.py
 ```
 
-## Make a standalone .exe (optional)
+## Building a standalone .exe (optional)
 
-If you'd rather have a single double-clickable `Energy7.exe` (no Python needed
-to launch it, and you can copy it to other PCs):
+To produce a single double-clickable `Energy7.exe` that needs nothing installed:
 
-1. On your Windows machine, double-click **`build_exe.bat`**.
-2. Wait a few minutes. When it finishes, your program is at **`dist\Energy7.exe`**.
-3. Double-click that exe to run. You can move/copy that one file anywhere.
+1. Run **`get_ffmpeg.bat`** (so ffmpeg can be bundled into the exe).
+2. Double-click **`build_exe.bat`**. After a few minutes the result is at
+   `dist/Energy7.exe`. You can copy that single file anywhere.
 
-ffmpeg is bundled automatically. `build_exe.bat` now checks for `ffmpeg.exe`
-in this folder and, if it's missing, downloads it for you (via `get_ffmpeg.bat`)
-before baking it into the exe. The result is fully self-contained — it runs on
-any Windows PC with nothing else installed.
-
-Already built the exe and just need ffmpeg without rebuilding? Run
-**`get_ffmpeg.bat`** — it downloads `ffmpeg.exe` and also drops a copy into the
-`dist` folder next to your existing `Energy7.exe`, so it works immediately.
-
-Notes:
-- The exe is large (roughly 300–500 MB) because it packs in the audio/analysis
-  libraries. That's normal for this kind of app.
-- Building must be done on Windows (an exe can't be built from Mac/Linux).
+The exe is large (roughly 300–500 MB) because it packs in the audio-analysis
+libraries. Building must be done on Windows.
 
 ## How to use it
 
-1. Click **Add MP3s** and pick your tracks. Reorder with **Up / Down**.
-2. (Optional) Click **Analyze** to see BPM and detected music-start times.
-3. Adjust **Mix settings**:
-   - *Crossfade (sec)* — how long each transition is (8s is a good start).
-   - *Loudness (LUFS)* — target volume; -14 is the streaming standard.
-   - *Skip long intros* — on = start each track where the beat drops.
-   - *Mix mode* — "Beat-aligned (keep tempo)" or "Tempo-matched (beat-lock)".
-   - *Master BPM* — only used in beat-lock mode. Leave at 0 to auto-use the
-     first track's BPM, or type a number (e.g. 128) to force the whole set to
-     that tempo.
-4. Click **Build Mix**. When it says "Mix ready", press **Play**.
-5. Use the transport row to **scrub** (click/drag the bar), **skip ±10s**, or
-   jump **Prev / Next** track. The time shows as `elapsed / total`.
+1. Click **Add MP3s** and choose your tracks. Reorder them with **Up / Down**.
+2. (Optional) Click **Analyze** to see each track's BPM and detected start point.
+3. Set your **Mix settings**:
+   - *Crossfade (sec)* — transition length (8s is a good start).
+   - *Loudness (LUFS)* — target volume; −14 is the streaming standard.
+   - *Skip long intros* — start each track at the beat drop.
+   - *Mix mode* — Beat-aligned or Tempo-matched.
+   - *Master BPM* — for Tempo-matched mode; 0 = auto (uses the first track's BPM).
+4. Click **Build Mix**. When it reports "Mix ready", press **Play**.
+5. Use the transport row to scrub (click the bar), skip ±10s, or jump between tracks.
 6. Click **Visuals** for the kaleidoscope (Esc closes it; click it for a burst).
-7. **Save MP3** to export the set, **Save Playlist** to keep the track list.
+7. **Save MP3** exports the set; **Save Playlist** keeps the track list.
 
-## Notes & tips
+## How it works
 
-- "Skip long intros" uses energy detection to find where a track really gets
-  going, which is exactly the case you described — old long dance mixes that
-  idle for a couple of minutes before the groove starts.
-- *Beat-aligned* keeps tempos as-is but now locks transitions to the beat grid:
-  the outgoing track mixes out on a bar line, the incoming track drops in on its
-  own downbeat at that exact spot, and the fade spans whole bars. When two
-  tracks are close in tempo they stay locked; when they differ a lot the fade is
-  automatically shortened so the beats don't drift apart and clash. For tracks
-  with very different BPMs, use *Tempo-matched* for a fully locked blend.
-- *Tempo-matched* locks the beats through every transition, but big tempo jumps
-  mean more time-stretching, which can add a slight "phasey" texture. For sets
-  of similar-tempo tracks it sounds tight and seamless. Tip: pick a Master BPM
-  close to the average of your tracks to minimise stretching.
-- If a track is very short it's used whole (no trimming).
-- Everything runs locally on your PC. Nothing is uploaded.
+Each track is analyzed with [librosa](https://librosa.org/) to estimate its
+tempo, beat positions, and the point where the music's energy rises (the intro
+skip). Audio is decoded and encoded through **ffmpeg** for reliable MP3 support.
+At each transition the outgoing track mixes out on a bar boundary and the incoming
+track enters on its own downbeat at that exact spot, with an equal-power crossfade
+spanning a whole number of bars, so the beats line up instead of clashing. In
+tempo-matched mode, tracks are time-stretched to a common BPM (with half/double-time
+handling) so the beats stay locked throughout. Loudness is normalized per track
+with [pyloudnorm](https://github.com/csteinmetz1/pyloudnorm), and playback runs
+through [sounddevice](https://python-sounddevice.readthedocs.io/) straight from
+the rendered audio at full quality.
 
-## Troubleshooting
+## Files
 
-- **"ffmpeg not found"** — just run **`get_ffmpeg.bat`**. It downloads
-  `ffmpeg.exe` into this folder (and next to `Energy7.exe` if you've built it),
-  which is all Energy 7 needs. Alternatively, copy an existing `ffmpeg.exe` into
-  the same folder as the program, or add ffmpeg to your PATH.
-- **No sound / "playback unavailable"** — `sounddevice` failed to install; you
-  can still Save MP3 and play it in any player.
-- **A track fails to load** — it may be DRM-protected or corrupt; try
-  re-exporting it as a normal MP3.
+| File | Purpose |
+| --- | --- |
+| `energy7.py` | The application (GUI + audio engine + visualizer). |
+| `run.bat` | Installs dependencies and launches the app. |
+| `get_ffmpeg.bat` | Downloads `ffmpeg.exe` into this folder. |
+| `build_exe.bat` | Builds a standalone `Energy7.exe` with PyInstaller. |
+| `generate_logo.py` | Regenerates the logo/icon (`energy7.png`, `energy7.ico`). |
+| `requirements.txt` | Python dependencies. |
+
+## Tech
+
+Python · Tkinter (GUI) · librosa · NumPy · sounddevice · pyloudnorm · ffmpeg · PyInstaller
 
 ## License
 
-Energy 7 is released under the MIT License — see the `LICENSE` file. You're free
-to use, modify, and share it; just keep the copyright notice.
+Released under the [MIT License](LICENSE) — free to use, modify, and share; just
+keep the copyright notice.
 
-**ffmpeg note:** ffmpeg is a separate program that Energy 7 calls; it is *not*
-included in this repository. Run `get_ffmpeg.bat` to download it locally. This
-keeps the repo cleanly MIT-licensed (ffmpeg has its own license). For the same
-reason, the built `Energy7.exe` (which bundles ffmpeg) is not committed either.
+**Note on ffmpeg:** ffmpeg is a separate program that Energy 7 calls at runtime;
+it is not included in this repository. Run `get_ffmpeg.bat` to download it. The
+built `Energy7.exe` (which bundles ffmpeg) is likewise not committed, so the
+repository itself stays cleanly MIT-licensed.
+
+## Credits
+
+Created by **mrnet15**, built together with **Claude**.
