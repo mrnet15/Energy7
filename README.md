@@ -35,8 +35,7 @@ save both the mixed MP3 and your playlist.
 
 ## Requirements
 
-- **Windows** with **Python 3.9+** and **ffmpeg** on your PATH (you said both
-  are installed — good).
+- **Windows** with **Python 3.9+** and **ffmpeg** on your PATH.
 - Python packages in `requirements.txt` (installed automatically on first run).
 
 Check ffmpeg works by opening Command Prompt and running: `ffmpeg -version`
