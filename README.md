@@ -4,7 +4,7 @@
 
 <h1 align="center">Energy 7</h1>
 
-<p align="center">A simple automatic DJ for Windows — beat-mix your MP3s into one continuous set.</p>
+<p align="center">A simple automatic DJ for Windows, macOS &amp; Linux — beat-mix your MP3s into one continuous set.</p>
 
 ---
 
@@ -58,6 +58,22 @@ Prefer the command line?
 pip install -r requirements.txt
 python energy7.py
 ```
+
+### macOS / Linux
+
+Energy 7 runs on macOS and Linux too.
+
+1. Make sure **Python 3.9+** is installed.
+2. Get ffmpeg: double-click **`get_ffmpeg.command`** (or `brew install ffmpeg`
+   on macOS / `sudo apt install ffmpeg` on Linux).
+3. Double-click **`run.command`** (macOS) — or from a terminal: `bash run.command`.
+   The first run creates a local environment and installs the packages.
+
+The first time you double-click a `.command` file macOS may block it; either
+right-click → **Open**, or run `chmod +x *.command` once in the folder.
+
+To build a standalone **`Energy7.app`**, run **`build_app_mac.command`** on a Mac
+(the result is in `dist/`). Apps can only be built on the OS they target.
 
 ## Building a standalone .exe (optional)
 

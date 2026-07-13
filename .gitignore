@@ -3,10 +3,12 @@ build/
 dist/
 *.spec
 
-# --- Python caches ---
+# --- Python caches / envs ---
 __pycache__/
 *.pyc
 *.pyo
+.venv/
+*.app
 
 # --- ffmpeg is NOT redistributed; users fetch it with get_ffmpeg.bat ---
 ffmpeg.exe

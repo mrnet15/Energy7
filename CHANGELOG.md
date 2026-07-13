@@ -1,5 +1,13 @@
 # Changelog
 
+## v1.1 — cross-platform
+
+- **Runs on macOS and Linux** as well as Windows, from the same code.
+- macOS/Linux launcher (`run.command`), ffmpeg helper (`get_ffmpeg.command`),
+  and a `.app` build script (`build_app_mac.command`) with a `.icns` icon.
+- Native fonts per platform (Segoe UI / Helvetica Neue / DejaVu).
+- Clickable `github.com/mrnet15/Energy7` link in the header.
+
 ## v1.0 — first release
 
 Energy 7's first stable release: a complete automatic-DJ app for Windows.

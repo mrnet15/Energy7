@@ -70,8 +70,16 @@ except Exception:
     butter = filtfilt = None
 
 
-__version__ = "1.0"
+__version__ = "1.1"
 REPO_URL = "https://github.com/mrnet15/Energy7"
+
+# Native-looking fonts per platform.
+if sys.platform == "darwin":
+    UI_FAMILY, MONO_FAMILY = "Helvetica Neue", "Menlo"
+elif sys.platform.startswith("win"):
+    UI_FAMILY, MONO_FAMILY = "Segoe UI", "Consolas"
+else:
+    UI_FAMILY, MONO_FAMILY = "DejaVu Sans", "DejaVu Sans Mono"
 
 SR = 44100                     # working sample rate
 CHANNELS = 2                   # stereo
@@ -1046,7 +1054,7 @@ class Visualizer(tk.Toplevel):
                               width=2)
             c.create_text(cx, cy + 130, fill="#666",
                           text="Press Play in the main window",
-                          font=("Segoe UI", 15))
+                          font=(UI_FAMILY, 15))
             return
 
         bands, wav = got
@@ -1262,7 +1270,7 @@ _BaseTk = TkinterDnD.Tk if TkinterDnD is not None else tk.Tk
 class App(_BaseTk):
     def __init__(self):
         super().__init__()
-        self.title("Energy 7  v%s  -  automatic DJ    (mrnet15/claude)" % __version__)
+        self.title("Energy 7  v%s  -  automatic DJ" % __version__)
         self.geometry("880x680")
         self.minsize(760, 600)
         self.configure(bg=BG)
@@ -1315,14 +1323,14 @@ class App(_BaseTk):
             style.theme_use("clam")
         except Exception:
             pass
-        base_font = ("Segoe UI", 10)
+        base_font = (UI_FAMILY, 10)
         style.configure(".", background=BG, foreground=FG, fieldbackground=PANEL,
                         bordercolor=BORDER, font=base_font)
         style.configure("TFrame", background=BG)
         style.configure("TLabel", background=BG, foreground=FG)
         style.configure("Muted.TLabel", background=BG, foreground=MUTED)
         style.configure("Time.TLabel", background=BG, foreground=ACCENT,
-                        font=("Consolas", 11))
+                        font=(MONO_FAMILY, 11))
         style.configure("TLabelframe", background=BG, bordercolor=BORDER,
                         relief="solid")
         style.configure("TLabelframe.Label", background=BG, foreground=ACCENT)
@@ -1335,7 +1343,7 @@ class App(_BaseTk):
                   foreground=[("disabled", MUTED)])
 
         style.configure("Accent.TButton", background=ACCENT, foreground=ONACCENT,
-                        relief="flat", padding=(12, 6), font=("Segoe UI", 10, "bold"))
+                        relief="flat", padding=(12, 6), font=(UI_FAMILY, 10, "bold"))
         style.map("Accent.TButton",
                   background=[("pressed", "#00b8cc"), ("active", "#33ecff")])
 
@@ -1355,7 +1363,7 @@ class App(_BaseTk):
                         foreground=FG, bordercolor=BORDER, rowheight=26,
                         borderwidth=0)
         style.configure("Treeview.Heading", background=PANEL2, foreground=MUTED,
-                        relief="flat", padding=6, font=("Segoe UI", 9, "bold"))
+                        relief="flat", padding=6, font=(UI_FAMILY, 9, "bold"))
         style.map("Treeview.Heading", background=[("active", BORDER)])
         style.map("Treeview", background=[("selected", ACCENT)],
                   foreground=[("selected", ONACCENT)])
@@ -1414,14 +1422,14 @@ class App(_BaseTk):
 
         # Wordmark + subtitle.
         c.create_text(74, cy - 10, anchor="w", text="ENERGY 7",
-                      fill=FG, font=("Segoe UI Black", 20, "bold"))
+                      fill=FG, font=(UI_FAMILY, 20, "bold"))
         c.create_text(76, cy + 16, anchor="w", text="AUTOMATIC  DJ",
-                      fill=ACCENT, font=("Segoe UI", 9, "bold"))
+                      fill=ACCENT, font=(UI_FAMILY, 9, "bold"))
         c.create_text(w - 12, cy - 9, anchor="e", text="github.com/mrnet15/Energy7",
                       tags=("repo",), fill=ACCENT,
-                      font=("Segoe UI", 9, "underline"))
+                      font=(UI_FAMILY, 9, "underline"))
         c.create_text(w - 12, cy + 9, anchor="e", text="v" + __version__,
-                      fill=MUTED, font=("Segoe UI", 9))
+                      fill=MUTED, font=(UI_FAMILY, 9))
 
     # ----- UI construction ------------------------------------------------- #
     def _build_ui(self):
@@ -1555,7 +1563,7 @@ class App(_BaseTk):
         logf.pack(fill="both", expand=False, padx=10, pady=5)
         self.log = tk.Text(logf, height=6, wrap="word", state="disabled",
                            bg=PANEL, fg=MUTED, insertbackground=FG, relief="flat",
-                           highlightthickness=0, font=("Consolas", 9), padx=8, pady=6)
+                           highlightthickness=0, font=(MONO_FAMILY, 9), padx=8, pady=6)
         self.log.pack(fill="both", expand=True)
 
         self._update_play_pos()
